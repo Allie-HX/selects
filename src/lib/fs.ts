@@ -39,6 +39,7 @@ export async function scanDirectory(
   const videos: VideoFile[] = [];
 
   for (const [name, handle] of files) {
+    if (name.startsWith(".") || name.startsWith("._")) continue;
     if (!isVideoFile(name)) continue;
 
     const stem = getFileStem(name);
@@ -49,6 +50,7 @@ export async function scanDirectory(
     let audioExtension: string | null = null;
 
     for (const [audioName, audioHandle] of files) {
+      if (audioName.startsWith(".") || audioName.startsWith("._")) continue;
       if (isAudioFile(audioName) && getFileStem(audioName) === stem) {
         associatedAudio = audioHandle;
         audioExtension = getFileExtension(audioName);
