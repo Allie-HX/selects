@@ -1,12 +1,67 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { loadState } from "@/lib/storage";
 import { isFileSystemAccessSupported, pickDirectory } from "@/lib/fs";
 import type { AppState, ShortlistEntry } from "@/lib/types";
+import { VIDEO_EXTENSIONS } from "@/lib/types";
 import BrowserWarning from "@/components/BrowserWarning";
 import AmbientGlow from "@/components/AmbientGlow";
+
+interface TranscribeProgress {
+  current: number;
+  total: number;
+  currentClip: string;
+  status: "idle" | "running" | "done" | "error";
+  errorMessage?: string;
+  completed: Set<string>;
+  failed: Set<string>;
+}
+
+async function findVideoFile(
+  categoryDir: FileSystemDirectoryHandle,
+  clipName: string
+): Promise<File | null> {
+  const extensions = [...VIDEO_EXTENSIONS, ...VIDEO_EXTENSIONS.map((e) => e.toUpperCase())];
+  for (const ext of extensions) {
+    try {
+      const handle = await categoryDir.getFileHandle(`${clipName}.${ext}`);
+      return handle.getFile();
+    } catch {
+      // try next
+    }
+  }
+  return null;
+}
+
+async function transcribeFile(file: File): Promise<{ text: string; srt: string }> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch("/api/transcribe", {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error || "Transcription failed");
+  }
+
+  return res.json();
+}
+
+async function writeTextFile(
+  dir: FileSystemDirectoryHandle,
+  name: string,
+  content: string
+): Promise<void> {
+  const handle = await dir.getFileHandle(name, { create: true });
+  const writable = await handle.createWritable();
+  await writable.write(content);
+  await writable.close();
+}
 
 export default function ShortlistPage() {
   const [supported, setSupported] = useState(true);
@@ -16,6 +71,15 @@ export default function ShortlistPage() {
   const [previewEntry, setPreviewEntry] = useState<ShortlistEntry | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [shortlistDir, setShortlistDir] = useState<FileSystemDirectoryHandle | null>(null);
+  const [transcribeProgress, setTranscribeProgress] = useState<TranscribeProgress>({
+    current: 0,
+    total: 0,
+    currentClip: "",
+    status: "idle",
+    completed: new Set(),
+    failed: new Set(),
+  });
+  const abortRef = useRef(false);
 
   useEffect(() => {
     setMounted(true);
@@ -88,6 +152,71 @@ export default function ShortlistPage() {
     }
   };
 
+  const handleTranscribeAll = async () => {
+    if (!shortlistDir || !appState) return;
+
+    abortRef.current = false;
+    const entries = appState.shortlist;
+    const completed = new Set<string>();
+    const failed = new Set<string>();
+
+    setTranscribeProgress({
+      current: 0,
+      total: entries.length,
+      currentClip: "",
+      status: "running",
+      completed,
+      failed,
+    });
+
+    for (let i = 0; i < entries.length; i++) {
+      if (abortRef.current) break;
+
+      const entry = entries[i];
+      setTranscribeProgress((prev) => ({
+        ...prev,
+        current: i + 1,
+        currentClip: entry.clipName,
+      }));
+
+      try {
+        const categoryDir = await shortlistDir.getDirectoryHandle(entry.category);
+        const videoFile = await findVideoFile(categoryDir, entry.clipName);
+
+        if (!videoFile) {
+          failed.add(entry.id);
+          setTranscribeProgress((prev) => ({ ...prev, failed: new Set(failed) }));
+          continue;
+        }
+
+        const { text, srt } = await transcribeFile(videoFile);
+
+        await writeTextFile(categoryDir, `${entry.clipName}.txt`, text);
+        await writeTextFile(categoryDir, `${entry.clipName}.srt`, srt);
+
+        completed.add(entry.id);
+        setTranscribeProgress((prev) => ({ ...prev, completed: new Set(completed) }));
+      } catch (err) {
+        failed.add(entry.id);
+        setTranscribeProgress((prev) => ({
+          ...prev,
+          failed: new Set(failed),
+          errorMessage: err instanceof Error ? err.message : "Unknown error",
+        }));
+      }
+    }
+
+    setTranscribeProgress((prev) => ({
+      ...prev,
+      status: abortRef.current ? "idle" : "done",
+      currentClip: "",
+    }));
+  };
+
+  const handleCancelTranscribe = () => {
+    abortRef.current = true;
+  };
+
   if (!mounted) {
     return (
       <div className="flex-1 flex items-center justify-center min-h-screen">
@@ -147,13 +276,77 @@ export default function ShortlistPage() {
               </button>
             )}
             {shortlistDir && (
-              <span className="text-xs px-2 py-1 rounded-lg" style={{ background: "var(--surface)", color: "var(--green)" }}>
-                Folder connected: {shortlistDir.name}
-              </span>
+              <>
+                <span className="text-xs px-2 py-1 rounded-lg" style={{ background: "var(--surface)", color: "var(--green)" }}>
+                  Folder connected: {shortlistDir.name}
+                </span>
+                {transcribeProgress.status === "running" ? (
+                  <button
+                    onClick={handleCancelTranscribe}
+                    className="px-4 py-2 rounded-xl text-sm font-medium transition-colors"
+                    style={{ background: "var(--red)", color: "#fff" }}
+                  >
+                    Cancel
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleTranscribeAll}
+                    className="px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2"
+                    style={{ background: "var(--surface)", color: "var(--text-primary)", border: "0.5px solid var(--border)" }}
+                    disabled={appState?.shortlist.length === 0}
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 0 1 0 12.728M16.463 8.288a5.25 5.25 0 0 1 0 7.424M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z" />
+                    </svg>
+                    Transcribe All
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>
       </header>
+
+      {/* Transcription progress */}
+      {transcribeProgress.status !== "idle" && (
+        <div className="relative z-20 px-4 py-3" style={{ background: "var(--surface)", borderBottom: "0.5px solid var(--border)" }}>
+          <div className="max-w-4xl mx-auto">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
+                {transcribeProgress.status === "running" && (
+                  <>Transcribing {transcribeProgress.current} of {transcribeProgress.total}: {transcribeProgress.currentClip}</>
+                )}
+                {transcribeProgress.status === "done" && (
+                  <>Transcription complete &mdash; {transcribeProgress.completed.size} succeeded{transcribeProgress.failed.size > 0 && `, ${transcribeProgress.failed.size} failed`}</>
+                )}
+              </p>
+              {transcribeProgress.status === "done" && (
+                <button
+                  onClick={() => setTranscribeProgress((prev) => ({ ...prev, status: "idle" }))}
+                  className="text-xs px-2 py-1 rounded-lg transition-colors"
+                  style={{ color: "var(--text-tertiary)" }}
+                >
+                  Dismiss
+                </button>
+              )}
+            </div>
+            <div className="w-full h-1 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
+              <div
+                className="h-full rounded-full transition-all duration-300"
+                style={{
+                  width: `${transcribeProgress.total > 0 ? (transcribeProgress.current / transcribeProgress.total) * 100 : 0}%`,
+                  background: transcribeProgress.status === "done" ? "var(--green)" : "var(--accent)",
+                }}
+              />
+            </div>
+            {transcribeProgress.errorMessage && (
+              <p className="text-xs mt-1" style={{ color: "var(--red)" }}>
+                Last error: {transcribeProgress.errorMessage}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Content */}
       <div className="flex-1 relative z-10 p-4 max-w-4xl mx-auto w-full">
@@ -246,16 +439,31 @@ export default function ShortlistPage() {
                               )}
                             </p>
                           </div>
-                          <svg
-                            className="w-5 h-5 flex-shrink-0"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={1.5}
-                            style={{ color: "var(--text-tertiary)" }}
-                          >
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z" />
-                          </svg>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            {transcribeProgress.completed.has(entry.id) && (
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} style={{ color: "var(--green)" }}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                              </svg>
+                            )}
+                            {transcribeProgress.failed.has(entry.id) && (
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} style={{ color: "var(--red)" }}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="m9.75 9.75 4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                              </svg>
+                            )}
+                            {transcribeProgress.status === "running" && transcribeProgress.currentClip === entry.clipName && !transcribeProgress.completed.has(entry.id) && !transcribeProgress.failed.has(entry.id) && (
+                              <div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+                            )}
+                            <svg
+                              className="w-5 h-5"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                              strokeWidth={1.5}
+                              style={{ color: "var(--text-tertiary)" }}
+                            >
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z" />
+                            </svg>
+                          </div>
                         </div>
                       ))}
                     </div>
