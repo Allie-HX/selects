@@ -18,7 +18,8 @@
     "openai": "^6.36.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "remotion": "^4.0.459"
+    "remotion": "^4.0.459",
+    "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
