@@ -14,7 +14,7 @@ export const RemotionRoot: React.FC = () => {
         videoUrl: "",
         srtContent: "",
       }}
-      calculateMetadata={({ props }) => {
+      calculateMetadata={({ props }: { props: Record<string, unknown> }) => {
         return {
           durationInFrames:
             (props as { durationInFrames?: number }).durationInFrames ?? 900,
