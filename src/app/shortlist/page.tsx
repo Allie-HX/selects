@@ -2,12 +2,13 @@
 
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
-import { loadState } from "@/lib/storage";
+import { loadState, getActiveProject } from "@/lib/storage";
 import { isFileSystemAccessSupported, pickDirectory } from "@/lib/fs";
 import type { AppState, ShortlistEntry } from "@/lib/types";
 import { VIDEO_EXTENSIONS } from "@/lib/types";
 import BrowserWarning from "@/components/BrowserWarning";
 import AmbientGlow from "@/components/AmbientGlow";
+import ProjectSelector from "@/components/ProjectSelector";
 
 interface TranscribeProgress {
   current: number;
@@ -386,7 +387,8 @@ export default function ShortlistPage() {
               {appState.shortlist.length} clips
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            <ProjectSelector onProjectChange={() => setAppState(loadState())} />
             {!shortlistDir && (
               <button
                 onClick={handlePickShortlistDir}

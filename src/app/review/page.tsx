@@ -3,9 +3,10 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { isFileSystemAccessSupported, pickDirectory, buildSourceFolder, copyFileToShortlist } from "@/lib/fs";
-import { loadState, saveState, addToShortlist, markReviewed, markSkipped, addCategory, getShortlistNameConflict } from "@/lib/storage";
+import { loadState, saveState, addToShortlist, markReviewed, markSkipped, addCategory, getShortlistNameConflict, getActiveProject, setActiveProject, listProjects, createProject } from "@/lib/storage";
 import type { VideoFile, SourceFolder, ShortlistEntry, AppState } from "@/lib/types";
 import BrowserWarning from "@/components/BrowserWarning";
+import ProjectSelector from "@/components/ProjectSelector";
 
 export default function ReviewPage() {
   const [supported, setSupported] = useState(true);
@@ -337,7 +338,8 @@ export default function ReviewPage() {
             </h1>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            <ProjectSelector onProjectChange={() => setAppState(loadState())} />
             <button
               onClick={handleAddFolder}
               className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors"
