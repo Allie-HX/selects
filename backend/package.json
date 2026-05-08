@@ -1,0 +1,32 @@
+{
+  "name": "selects-backend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3",
+    "@aws-sdk/s3-request-presigner": "^3",
+    "@remotion/bundler": "^4",
+    "@remotion/captions": "^4",
+    "@remotion/renderer": "^4",
+    "bullmq": "^5",
+    "cors": "^2",
+    "express": "^5",
+    "ffmpeg-static": "^5",
+    "ioredis": "^5",
+    "openai": "^4",
+    "remotion": "^4",
+    "socket.io": "^4"
+  },
+  "devDependencies": {
+    "@types/cors": "^2",
+    "@types/express": "^5",
+    "@types/node": "^20",
+    "tsx": "^4",
+    "typescript": "^5"
+  }
+}
