@@ -113,3 +113,50 @@ export async function submitRenderBatch(
   const data = await res.json();
   return data.jobs;
 }
+
+export interface ClipInfo {
+  key: string;
+  clipName: string;
+  category: string;
+  durationSeconds: number;
+  transcript: string;
+}
+
+export interface CompositionPlan {
+  title: string;
+  segments: {
+    clipKey: string;
+    clipName: string;
+    startSeconds: number;
+    endSeconds: number;
+    purpose: string;
+  }[];
+  hookText: string;
+  ctaText: string;
+  transitionStyle: string;
+  captionStyle: string;
+  totalDurationSeconds: number;
+}
+
+export interface GenerateResult {
+  audience: string;
+  plan?: CompositionPlan;
+  downloadUrl?: string;
+  error?: string;
+}
+
+export async function generateForAudiences(
+  clips: ClipInfo[],
+  audiences: string[],
+  userId: string,
+  targetDuration: number = 30
+): Promise<GenerateResult[]> {
+  const res = await fetch(`${BACKEND_URL}/api/compose/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ clips, audiences, targetDuration, userId }),
+  });
+  if (!res.ok) throw new Error("Failed to start generation");
+  const data = await res.json();
+  return data.results;
+}

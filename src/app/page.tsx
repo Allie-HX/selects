@@ -137,6 +137,35 @@ export default function Home() {
               </p>
             </div>
           </Link>
+          <Link href="/generate/ai" className="flex-1 group">
+            <div className="glass glass-hover transition-glass p-6 text-center cursor-pointer h-full">
+              <div className="text-3xl mb-3">
+                <svg
+                  className="w-8 h-8 mx-auto"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={1.5}
+                  style={{ color: "var(--hx-yellow, #FFF800)" }}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 0 0-2.455 2.456Z"
+                  />
+                </svg>
+              </div>
+              <h2
+                className="text-lg font-semibold mb-1"
+                style={{ color: "var(--text-primary)" }}
+              >
+                AI Video Generator
+              </h2>
+              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                Upload footage, AI creates audience-targeted videos
+              </p>
+            </div>
+          </Link>
         </div>
       </div>
     </div>
