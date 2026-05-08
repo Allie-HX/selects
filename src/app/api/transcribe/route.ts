@@ -15,6 +15,12 @@ interface WhisperSegment {
   text: string;
 }
 
+interface WhisperWord {
+  word: string;
+  start: number;
+  end: number;
+}
+
 function formatSrtTime(seconds: number): string {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -28,6 +34,15 @@ function buildSrt(segments: WhisperSegment[]): string {
     .map(
       (seg, i) =>
         `${i + 1}\n${formatSrtTime(seg.start)} --> ${formatSrtTime(seg.end)}\n${seg.text.trim()}\n`
+    )
+    .join("\n");
+}
+
+function buildWordSrt(words: WhisperWord[]): string {
+  return words
+    .map(
+      (w, i) =>
+        `${i + 1}\n${formatSrtTime(w.start)} --> ${formatSrtTime(w.end)}\n${w.word.trim()}\n`
     )
     .join("\n");
 }
@@ -77,14 +92,16 @@ export async function POST(request: Request) {
       file: createReadStream(mp3Path),
       model: "whisper-1",
       response_format: "verbose_json",
-      timestamp_granularities: ["segment"],
+      timestamp_granularities: ["segment", "word"],
     });
 
     const text = transcription.text;
     const segments = (transcription.segments ?? []) as WhisperSegment[];
+    const words = (transcription.words ?? []) as WhisperWord[];
     const srt = buildSrt(segments);
+    const wordSrt = buildWordSrt(words);
 
-    return Response.json({ text, srt });
+    return Response.json({ text, srt, wordSrt });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Transcription failed";
     return Response.json({ error: message }, { status: 500 });

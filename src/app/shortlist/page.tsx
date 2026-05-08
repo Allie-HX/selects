@@ -35,7 +35,7 @@ async function findVideoFile(
   return null;
 }
 
-async function transcribeFile(file: File): Promise<{ text: string; srt: string }> {
+async function transcribeFile(file: File): Promise<{ text: string; srt: string; wordSrt: string }> {
   const formData = new FormData();
   formData.append("file", file);
 
@@ -243,10 +243,11 @@ export default function ShortlistPage() {
           continue;
         }
 
-        const { text, srt } = await transcribeFile(videoFile);
+        const { text, srt, wordSrt } = await transcribeFile(videoFile);
 
         await writeTextFile(categoryDir, `${entry.clipName}.txt`, text);
         await writeTextFile(categoryDir, `${entry.clipName}.srt`, srt);
+        await writeTextFile(categoryDir, `${entry.clipName}.words.srt`, wordSrt);
 
         completed.add(entry.id);
         setTranscribeProgress((prev) => ({ ...prev, completed: new Set(completed) }));
@@ -308,7 +309,8 @@ export default function ShortlistPage() {
           continue;
         }
 
-        const srtContent = await readTextFile(categoryDir, `${entry.clipName}.srt`);
+        const wordSrt = await readTextFile(categoryDir, `${entry.clipName}.words.srt`);
+        const srtContent = wordSrt ?? await readTextFile(categoryDir, `${entry.clipName}.srt`);
         const rendered = await renderSocialClip(videoFile, srtContent);
 
         await writeBinaryFile(categoryDir, `${entry.clipName}-social.mp4`, rendered);
