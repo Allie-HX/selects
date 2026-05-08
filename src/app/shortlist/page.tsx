@@ -52,6 +52,19 @@ async function transcribeFile(file: File): Promise<{ text: string; srt: string }
   return res.json();
 }
 
+async function readTextFile(
+  dir: FileSystemDirectoryHandle,
+  name: string
+): Promise<string | null> {
+  try {
+    const handle = await dir.getFileHandle(name);
+    const file = await handle.getFile();
+    return file.text();
+  } catch {
+    return null;
+  }
+}
+
 async function writeTextFile(
   dir: FileSystemDirectoryHandle,
   name: string,
@@ -61,6 +74,38 @@ async function writeTextFile(
   const writable = await handle.createWritable();
   await writable.write(content);
   await writable.close();
+}
+
+async function writeBinaryFile(
+  dir: FileSystemDirectoryHandle,
+  name: string,
+  data: ArrayBuffer
+): Promise<void> {
+  const handle = await dir.getFileHandle(name, { create: true });
+  const writable = await handle.createWritable();
+  await writable.write(data);
+  await writable.close();
+}
+
+async function renderSocialClip(
+  videoFile: File,
+  srtContent: string | null
+): Promise<ArrayBuffer> {
+  const formData = new FormData();
+  formData.append("video", videoFile);
+  if (srtContent) formData.append("srt", srtContent);
+
+  const res = await fetch("/api/render", {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error || "Render failed");
+  }
+
+  return res.arrayBuffer();
 }
 
 export default function ShortlistPage() {
@@ -79,7 +124,16 @@ export default function ShortlistPage() {
     completed: new Set(),
     failed: new Set(),
   });
+  const [renderProgress, setRenderProgress] = useState<TranscribeProgress>({
+    current: 0,
+    total: 0,
+    currentClip: "",
+    status: "idle",
+    completed: new Set(),
+    failed: new Set(),
+  });
   const abortRef = useRef(false);
+  const abortRenderRef = useRef(false);
 
   useEffect(() => {
     setMounted(true);
@@ -217,6 +271,71 @@ export default function ShortlistPage() {
     abortRef.current = true;
   };
 
+  const handleGenerateSocial = async () => {
+    if (!shortlistDir || !appState) return;
+
+    abortRenderRef.current = false;
+    const entries = appState.shortlist;
+    const completed = new Set<string>();
+    const failed = new Set<string>();
+
+    setRenderProgress({
+      current: 0,
+      total: entries.length,
+      currentClip: "",
+      status: "running",
+      completed,
+      failed,
+    });
+
+    for (let i = 0; i < entries.length; i++) {
+      if (abortRenderRef.current) break;
+
+      const entry = entries[i];
+      setRenderProgress((prev) => ({
+        ...prev,
+        current: i + 1,
+        currentClip: entry.clipName,
+      }));
+
+      try {
+        const categoryDir = await shortlistDir.getDirectoryHandle(entry.category);
+        const videoFile = await findVideoFile(categoryDir, entry.clipName);
+
+        if (!videoFile) {
+          failed.add(entry.id);
+          setRenderProgress((prev) => ({ ...prev, failed: new Set(failed) }));
+          continue;
+        }
+
+        const srtContent = await readTextFile(categoryDir, `${entry.clipName}.srt`);
+        const rendered = await renderSocialClip(videoFile, srtContent);
+
+        await writeBinaryFile(categoryDir, `${entry.clipName}-social.mp4`, rendered);
+
+        completed.add(entry.id);
+        setRenderProgress((prev) => ({ ...prev, completed: new Set(completed) }));
+      } catch (err) {
+        failed.add(entry.id);
+        setRenderProgress((prev) => ({
+          ...prev,
+          failed: new Set(failed),
+          errorMessage: err instanceof Error ? err.message : "Unknown error",
+        }));
+      }
+    }
+
+    setRenderProgress((prev) => ({
+      ...prev,
+      status: abortRenderRef.current ? "idle" : "done",
+      currentClip: "",
+    }));
+  };
+
+  const handleCancelRender = () => {
+    abortRenderRef.current = true;
+  };
+
   if (!mounted) {
     return (
       <div className="flex-1 flex items-center justify-center min-h-screen">
@@ -301,6 +420,27 @@ export default function ShortlistPage() {
                     Transcribe All
                   </button>
                 )}
+                {renderProgress.status === "running" ? (
+                  <button
+                    onClick={handleCancelRender}
+                    className="px-4 py-2 rounded-xl text-sm font-medium transition-colors"
+                    style={{ background: "var(--red)", color: "#fff" }}
+                  >
+                    Cancel Render
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleGenerateSocial}
+                    className="px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2"
+                    style={{ background: "var(--accent)", color: "#fff" }}
+                    disabled={appState?.shortlist.length === 0 || transcribeProgress.status === "running"}
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z" />
+                    </svg>
+                    Generate Social
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -342,6 +482,47 @@ export default function ShortlistPage() {
             {transcribeProgress.errorMessage && (
               <p className="text-xs mt-1" style={{ color: "var(--red)" }}>
                 Last error: {transcribeProgress.errorMessage}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Render progress */}
+      {renderProgress.status !== "idle" && (
+        <div className="relative z-20 px-4 py-3" style={{ background: "var(--surface)", borderBottom: "0.5px solid var(--border)" }}>
+          <div className="max-w-4xl mx-auto">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
+                {renderProgress.status === "running" && (
+                  <>Rendering {renderProgress.current} of {renderProgress.total}: {renderProgress.currentClip} (this may take a few minutes per clip)</>
+                )}
+                {renderProgress.status === "done" && (
+                  <>Render complete &mdash; {renderProgress.completed.size} succeeded{renderProgress.failed.size > 0 && `, ${renderProgress.failed.size} failed`}</>
+                )}
+              </p>
+              {renderProgress.status === "done" && (
+                <button
+                  onClick={() => setRenderProgress((prev) => ({ ...prev, status: "idle" }))}
+                  className="text-xs px-2 py-1 rounded-lg transition-colors"
+                  style={{ color: "var(--text-tertiary)" }}
+                >
+                  Dismiss
+                </button>
+              )}
+            </div>
+            <div className="w-full h-1 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
+              <div
+                className="h-full rounded-full transition-all duration-300"
+                style={{
+                  width: `${renderProgress.total > 0 ? (renderProgress.current / renderProgress.total) * 100 : 0}%`,
+                  background: renderProgress.status === "done" ? "var(--green)" : "var(--amber)",
+                }}
+              />
+            </div>
+            {renderProgress.errorMessage && (
+              <p className="text-xs mt-1" style={{ color: "var(--red)" }}>
+                Last error: {renderProgress.errorMessage}
               </p>
             )}
           </div>
@@ -452,6 +633,15 @@ export default function ShortlistPage() {
                             )}
                             {transcribeProgress.status === "running" && transcribeProgress.currentClip === entry.clipName && !transcribeProgress.completed.has(entry.id) && !transcribeProgress.failed.has(entry.id) && (
                               <div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+                            )}
+                            {renderProgress.completed.has(entry.id) && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: "var(--green)", color: "#fff" }}>9:16</span>
+                            )}
+                            {renderProgress.failed.has(entry.id) && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: "var(--red)", color: "#fff" }}>9:16</span>
+                            )}
+                            {renderProgress.status === "running" && renderProgress.currentClip === entry.clipName && !renderProgress.completed.has(entry.id) && !renderProgress.failed.has(entry.id) && (
+                              <div className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: "var(--amber)", borderTopColor: "transparent" }} />
                             )}
                             <svg
                               className="w-5 h-5"
