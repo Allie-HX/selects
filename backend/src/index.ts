@@ -4,6 +4,7 @@ import { createServer } from "http";
 import { Server as SocketServer } from "socket.io";
 import uploadRoutes from "./routes/upload.js";
 import { createJobRoutes } from "./routes/jobs.js";
+import { createComposeRoutes } from "./routes/compose.js";
 import { createQueues, createWorkers } from "./queue/setup.js";
 
 const app = express();
@@ -40,6 +41,7 @@ createWorkers(io);
 
 app.use("/api/upload", uploadRoutes);
 app.use("/api/jobs", createJobRoutes(transcribeQueue, renderQueue));
+app.use("/api/compose", createComposeRoutes(io));
 
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok" });
